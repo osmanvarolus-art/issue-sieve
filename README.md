@@ -57,10 +57,29 @@ The agreement rule has no tuned threshold. It lets the sieve settle two to three
 
 ## How it works
 
-1. Each item's title and the first 400 characters of its body are embedded with [bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) through [transformers.js](https://github.com/huggingface/transformers.js), on WebGPU when available.
-2. Each column is the average of its example vectors. An item goes to the nearest column. If the top probability is under 45%, it goes to **Unsure** instead.
-3. A body under 40 characters pushes an issue toward **Needs info** and a PR toward **Low effort**.
-4. An issue more than 93% similar to an earlier open issue goes to **Duplicate**, with a link to that issue.
+1. Template parts that say nothing about the problem (versions, system info, logs, checklists, lines repeated across many of the repo's issues) are stripped from each body.
+2. The title and the first 400 characters of what is left are embedded with [bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) through [transformers.js](https://github.com/huggingface/transformers.js), on WebGPU when available.
+3. Each column is the average of its example vectors. An item goes to the nearest column. If the top probability is under 45%, it goes to **Unsure** instead.
+4. A body under 40 characters pushes an issue toward **Needs info** and a PR toward **Low effort**.
+5. An issue more than 93% similar to an earlier open issue goes to **Duplicate**. Two issues by the same author need 99% (a double post). Empty bodies are never matched. Between 85% and 93% the card only says "maybe same as #N".
+6. **Worth a look** shows 25 items first, ordered by reactions + comments. The sieve does not judge importance itself; that order is what people already care about.
+
+## Measured on live repos (2026-10-09)
+
+`bench/bench.mjs` runs `sieve.js`, the same code as the page, on the 300 newest open items. Truth is the labels maintainers already put on them; the sieve never sees labels.
+
+| repo | accuracy before → after | false duplicates before → after |
+|---|---|---|
+| godotengine/godot | 78% → 78% (45 labelled) | 1 → 0 |
+| microsoft/vscode | 77% → 77% (13 labelled) | 1 → 0 (a real double post is still found) |
+| facebook/react | no matching labels | 13 → 0 (empty bug templates, now in Needs info) |
+| flutter/flutter | 67% → 74% (43 labelled) | 0 → 0 |
+
+`bench/dupes.mjs` checks 91 Godot issues the maintainers closed as duplicates against the issue they pointed to. Real duplicates are less alike than one would think: median similarity 0.80. At 93% the sieve finds 2 of 91, at 85% 16 of 91. So the **Duplicate** column catches double posts and near copies, and "maybe same as" is a hint worth a click, not a verdict.
+
+Tried and dropped: learning from a repo's closed, labelled issues at start-up. On live open items it lowered accuracy (vscode 77% → 38%, flutter 67% → 47%) and moved 68 normal Godot PRs into Low effort.
+
+Run it yourself: `cd bench && npm install --ignore-scripts && GITHUB_TOKEN=$(gh auth token) node bench.mjs godotengine/godot`.
 
 ## Run it
 
@@ -71,7 +90,7 @@ A token raises that limit. The token is only sent to api.github.com.
 ## Limits
 
 - English-centric model. Only open items, and only the most recent 300.
-- Duplicate detection compares open issues only. It misses duplicates of closed issues.
+- Duplicate detection compares open issues only. It misses duplicates of closed issues, and it finds only a small share of real duplicates (see above).
 - The accuracy numbers come from one repo and one pair of classes. "Low effort" has no labelled benchmark yet.
 
 MIT licence.

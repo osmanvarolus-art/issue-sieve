@@ -1,0 +1,5 @@
+bench/node_modules/
+bench/package-lock.json
+.claude-flow/
+ruvector.db
+.swarm/
