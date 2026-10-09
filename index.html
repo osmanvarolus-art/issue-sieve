@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue Sieve</title>
+<meta name="description" content="Triage every open issue and PR of a GitHub repo in your browser, in milliseconds. Learns from your corrections. No server, no account.">
+<style>
+:root{
+  --bg:#0b0d10; --panel:#12161b; --card:#171c22; --line:#232a32; --text:#e6e9ee; --dim:#8a94a3;
+  --real:#3fb950; --info:#d29922; --slop:#f85149; --dupe:#a371f7; --unsure:#58a6ff;
+}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){
+  --bg:#f6f7f9; --panel:#ffffff; --card:#ffffff; --line:#e1e4e8; --text:#1f2328; --dim:#59636e;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.4 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5}
+h1{font-size:17px;margin:0 8px 0 0;letter-spacing:.2px}
+h1 span{color:var(--dim);font-weight:400}
+input{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:inherit}
+#repo{width:240px}#token{width:170px}
+button{background:var(--text);color:var(--bg);border:0;border-radius:8px;padding:8px 14px;font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+.stats{display:flex;gap:18px;margin-left:auto;font-variant-numeric:tabular-nums}
+.stat b{display:block;font-size:20px}.stat small{color:var(--dim)}
+#status{padding:8px 16px;color:var(--dim);min-height:34px}
+#bar{height:3px;background:var(--unsure);width:0;transition:width .2s}
+main{display:grid;grid-template-columns:repeat(5,minmax(220px,1fr));gap:12px;padding:0 16px 24px;overflow-x:auto}
+.col{background:var(--panel);border:1px solid var(--line);border-radius:12px;min-height:200px;display:flex;flex-direction:column}
+.col h2{font-size:13px;margin:0;padding:10px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;text-transform:uppercase;letter-spacing:.6px}
+.col h2 i{font-style:normal;width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.col h2 em{font-style:normal;color:var(--dim);font-variant-numeric:tabular-nums}
+.list{padding:8px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;max-height:calc(100vh - 190px)}
+.card{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--c);border-radius:8px;padding:8px 9px;animation:in .25s ease-out}
+@keyframes in{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:none}}
+.card a{color:var(--text);text-decoration:none;font-weight:500;display:block;overflow-wrap:anywhere}
+.card a:hover{text-decoration:underline}
+.meta{display:flex;gap:6px;align-items:center;color:var(--dim);font-size:12px;margin-top:5px;font-variant-numeric:tabular-nums}
+.conf{flex:1;height:4px;background:var(--line);border-radius:2px;overflow:hidden}.conf div{height:100%;background:var(--c)}
+.tag{border:1px solid var(--line);border-radius:4px;padding:0 4px;font-size:11px}
+.moves{display:none;gap:4px;margin-top:6px}.card:hover .moves,.card:focus-within .moves{display:flex}
+.moves button{background:transparent;color:var(--dim);border:1px solid var(--line);padding:2px 6px;font-size:11px;font-weight:500;border-radius:5px}
+.moves button:hover{color:var(--text);border-color:var(--dim)}
+.dupeof{font-size:12px;color:var(--dupe)}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:9px 14px;border-radius:10px;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none}
+#toast.on{opacity:1}
+footer{color:var(--dim);font-size:12px;padding:0 16px 20px}
+footer a{color:var(--dim)}
+@media (max-width:700px){main{grid-template-columns:repeat(5,85vw)}.stats{margin-left:0}#repo,#token{width:100%}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Issue Sieve <span>· triage a repo in milliseconds</span></h1>
+  <input id="repo" value="godotengine/godot" aria-label="owner/repo" spellcheck="false">
+  <input id="token" type="password" placeholder="GitHub token (optional)" aria-label="GitHub token">
+  <button id="go">Sieve</button>
+  <div class="stats">
+    <div class="stat"><b id="sN">0</b><small>items</small></div>
+    <div class="stat"><b id="sMs">–</b><small>ms / decision</small></div>
+    <div class="stat"><b id="sDup">0</b><small>duplicates</small></div>
+  </div>
+</header>
+<div id="bar"></div>
+<div id="status">Runs entirely in your browser. Nothing is sent anywhere except GitHub's public API.</div>
+<main id="board"></main>
+<div id="toast"></div>
+<footer>Hover a card and move it to teach the sieve; every correction re-sorts the whole board instantly and is remembered for this repo on this device.
+Model: <a href="https://huggingface.co/BAAI/bge-small-en-v1.5">bge-small-en-v1.5</a> via transformers.js.</footer>
+
+<script type="module">
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5";
+env.allowLocalModels = false;
+
+const CLASSES = {
+  real:   { name: "Worth a look", color: "var(--real)" },
+  info:   { name: "Needs info",   color: "var(--info)" },
+  slop:   { name: "Low effort",   color: "var(--slop)" },
+  dupe:   { name: "Duplicate",    color: "var(--dupe)" },
+  unsure: { name: "Unsure — you decide", color: "var(--unsure)" },
+};
+const LEARNED = ["real", "info", "slop"];
+const SEEDS = {
+  real: [
+    "Crash when opening a project with a custom shader on Vulkan. Steps to reproduce attached, minimal project included.",
+    "Regression since 4.3: export fails with error 'invalid path' after upgrading. Worked in 4.2.",
+    "Fix null pointer dereference in AudioServer when the output device disconnects",
+    "Memory leak in TileMap when changing scenes repeatedly, grows 50 MB per minute",
+    "Add support for HDR output on Windows with a project setting and docs",
+    "Speed up typed array construction by caching the element type, benchmark shows 2x",
+    "Remove dead code in the parser and simplify error handling",
+    "Wrong result from Vector3.slerp when vectors are opposite, test case included",
+  ],
+  info: [
+    "it doesnt work", "Help!! error", "bug", "Can't build", "app crashes",
+    "something is wrong with the editor please fix", "not working after update", "question",
+  ],
+  slop: [
+    "Update README.md", "Fixed typo", "Added my name to the contributors list", "Update index.html",
+    "Improved the code", "Refactored the code to follow best practices and improve readability",
+    "Enhanced the project with comprehensive improvements", "Added comments to every function",
+    "This PR improves overall code quality, maintainability and performance.", "Create main.py",
+  ],
+};
+const UNSURE_BELOW = 0.45, DUPE_ABOVE = 0.93, BATCH = 16, TEMP = 20, OWN_ONLY_AFTER = 3;
+
+const $ = (id) => document.getElementById(id);
+const board = $("board"), lists = {}, counts = {};
+for (const [k, c] of Object.entries(CLASSES)) {
+  const col = document.createElement("section");
+  col.className = "col"; col.style.setProperty("--c", c.color);
+  col.innerHTML = `<h2><span><i style="background:${c.color}"></i>${c.name}</span><em>0</em></h2><div class="list"></div>`;
+  board.append(col); lists[k] = col.querySelector(".list"); counts[k] = col.querySelector("em");
+}
+
+let embed, seedVecs, items = [], userEx = {};
+const status = (t) => ($("status").textContent = t);
+const toast = (t) => { const e = $("toast"); e.textContent = t; e.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove("on"), 2200); };
+
+async function loadModel() {
+  if (embed) return;
+  const asked = new URLSearchParams(location.search).get("device");
+  const device = asked || (navigator.gpu ? "webgpu" : "wasm");
+  status(`Loading the model once (about 33 MB, cached afterwards) on ${device}…`);
+  const progress = (p) => { if (p.status === "progress" && p.total) $("bar").style.width = `${(100 * p.loaded) / p.total}%`; };
+  try {
+    embed = await pipeline("feature-extraction", "Xenova/bge-small-en-v1.5", { device, dtype: device === "webgpu" ? "fp32" : "q8", progress_callback: progress });
+  } catch (err) {
+    if (device !== "webgpu") throw err;
+    console.warn("WebGPU failed, falling back to wasm:", err);
+    embed = await pipeline("feature-extraction", "Xenova/bge-small-en-v1.5", { device: "wasm", dtype: "q8", progress_callback: progress });
+  }
+  $("bar").style.width = "0";
+}
+
+async function vec(texts) {
+  const out = await embed(texts, { pooling: "cls", normalize: true });
+  return out.tolist();
+}
+const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+const mean = (vs) => { const m = new Array(vs[0].length).fill(0); for (const v of vs) for (let i = 0; i < m.length; i++) m[i] += v[i]; const n = Math.hypot(...m); return m.map((x) => x / n); };
+
+function prototypes() {
+  // Built-in seeds only bootstrap a class; after a few corrections the user's own examples know the repo better.
+  return LEARNED.map((k) => {
+    const ex = userEx[k] || [];
+    return mean(ex.length >= OWN_ONLY_AFTER ? ex : [...seedVecs[k], ...ex]);
+  });
+}
+
+function decide(item, protos) {
+  const s = protos.map((p) => dot(item.v, p) * TEMP);
+  const mx = Math.max(...s), e = s.map((x) => Math.exp(x - mx)), z = e.reduce((a, b) => a + b);
+  const p = e.map((x) => x / z);
+  // A body this thin cannot be acted on, whatever its title says.
+  // A thin body cannot be acted on: an issue needs details, a PR needs a reason.
+  if (item.bodyLen < 40) { p[item.isPR ? 2 : 1] += 0.25; const t = p.reduce((a, b) => a + b); p.forEach((_, i) => (p[i] /= t)); }
+  const best = p.indexOf(Math.max(...p));
+  return { cls: LEARNED[best], conf: p[best] };
+}
+
+function place(item) {
+  let k = item.forced || (item.dupeOf ? "dupe" : item.conf < UNSURE_BELOW ? "unsure" : item.cls);
+  item.col = k;
+  const c = CLASSES[k];
+  const el = item.el || (item.el = document.createElement("article"));
+  el.className = "card"; el.style.setProperty("--c", c.color);
+  const conf = item.dupeOf ? item.dupeSim : item.conf;
+  el.innerHTML = `<a href="${item.url}" target="_blank" rel="noopener">#${item.n} ${escapeHtml(item.title)}</a>
+    ${item.dupeOf ? `<div class="dupeof">≈ #${item.dupeOf} (${(item.dupeSim * 100).toFixed(0)}% similar)</div>` : ""}
+    <div class="meta"><span class="tag">${item.isPR ? "PR" : "issue"}</span><div class="conf"><div style="width:${(conf * 100).toFixed(0)}%"></div></div>${(conf * 100).toFixed(0)}% · ${item.ms.toFixed(1)} ms${item.forced ? " · you" : ""}</div>
+    <div class="moves">${LEARNED.filter((x) => x !== k).map((x) => `<button data-to="${x}">→ ${CLASSES[x].name}</button>`).join("")}</div>`;
+  lists[k].prepend(el);
+}
+
+function render() {
+  for (const k in lists) lists[k].replaceChildren();
+  for (const it of items) place(it);
+  for (const k in counts) counts[k].textContent = lists[k].children.length;
+  $("sDup").textContent = items.filter((i) => i.col === "dupe").length;
+}
+
+function rescore() {
+  const t = performance.now(), protos = prototypes();
+  for (const it of items) Object.assign(it, decide(it, protos));
+  const ms = performance.now() - t;
+  render();
+  return ms;
+}
+
+board.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-to]"); if (!b) return;
+  const it = items.find((i) => i.el === b.closest(".card")); const to = b.dataset.to;
+  it.forced = to; it.dupeOf = null;
+  (userEx[to] ||= []).push(it.v);
+  saveExamples();
+  const ms = rescore();
+  toast(`Learned from #${it.n}. Re-sorted ${items.length} items in ${ms.toFixed(1)} ms.`);
+});
+
+const key = () => `sieve:${$("repo").value.trim().toLowerCase()}`;
+function saveExamples() { try { localStorage.setItem(key(), JSON.stringify(userEx)); } catch (err) { console.warn("Could not save examples:", err); } }
+function loadExamples() { try { userEx = JSON.parse(localStorage.getItem(key()) || "{}"); } catch (err) { console.warn("Could not read saved examples:", err); userEx = {}; } }
+
+async function fetchIssues(repo, token, pages = 3) {
+  const out = [], headers = { Accept: "application/vnd.github+json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  for (let page = 1; page <= pages; page++) {
+    const r = await fetch(`https://api.github.com/repos/${repo}/issues?state=open&per_page=100&page=${page}`, { headers });
+    if (!r.ok) {
+      const msg = r.status === 403 || r.status === 429 ? "GitHub rate limit reached (60 requests/hour without a token). Add a token or wait." : r.status === 404 ? `Repo "${repo}" not found or private.` : `GitHub answered ${r.status}.`;
+      throw new Error(msg);
+    }
+    const batch = await r.json(); out.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return out;
+}
+
+async function run() {
+  const repo = $("repo").value.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\/$/, "");
+  $("repo").value = repo;
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) { status("Enter a repo as owner/name, for example godotengine/godot."); return; }
+  $("go").disabled = true;
+  try {
+    await loadModel();
+    if (!seedVecs) { seedVecs = {}; for (const k of LEARNED) seedVecs[k] = await vec(SEEDS[k]); }
+    loadExamples();
+    status(`Fetching open issues and PRs of ${repo}…`);
+    const raw = await fetchIssues(repo, $("token").value.trim());
+    items = []; render();
+    $("sN").textContent = "0"; $("sMs").textContent = "–";
+    const protos = prototypes(); let total = 0;
+    status(`Sieving ${raw.length} open items of ${repo}…`);
+    for (let i = 0; i < raw.length; i += BATCH) {
+      const rows = raw.slice(i, i + BATCH).map((r) => ({ r, body: (r.body || "").replace(/<!--[\s\S]*?-->/g, "").trim() }));
+      const t = performance.now();
+      const vs = await vec(rows.map(({ r, body }) => `${r.title}\n${body.slice(0, 400)}`));
+      const ms = (performance.now() - t) / rows.length;
+      rows.forEach(({ r, body }, j) => {
+        const it = { n: r.number, title: r.title, url: r.html_url, isPR: !!r.pull_request, bodyLen: body.length, v: vs[j], ms };
+        if (!it.isPR) {
+          let best = 0, bestN = null;
+          for (const o of items) if (!o.isPR) { const s = dot(it.v, o.v); if (s > best) { best = s; bestN = o.n; } }
+          if (best > DUPE_ABOVE) { it.dupeOf = bestN; it.dupeSim = best; }
+        }
+        Object.assign(it, decide(it, protos));
+        total += ms; items.push(it); place(it);
+        counts[it.col].textContent = lists[it.col].children.length;
+      });
+      $("sN").textContent = items.length; $("sMs").textContent = (total / items.length).toFixed(1);
+      $("sDup").textContent = items.filter((x) => x.col === "dupe").length;
+      await new Promise(requestAnimationFrame);
+    }
+    status(`${items.length} open items of ${repo} triaged in ${(total / 1000).toFixed(2)} s. ${items.filter((i) => i.col === "unsure").length} need your call.`);
+  } catch (err) {
+    console.error(err);
+    status(`Stopped: ${err.message}`);
+  } finally {
+    $("go").disabled = false;
+  }
+}
+
+function escapeHtml(s) { return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
+$("go").onclick = run;
+$("repo").addEventListener("keydown", (e) => e.key === "Enter" && run());
+const q = new URLSearchParams(location.search).get("repo");
+if (q) { $("repo").value = q; run(); }
+</script>
+</body>
+</html>
