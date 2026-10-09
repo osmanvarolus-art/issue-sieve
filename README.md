@@ -44,7 +44,7 @@ Out of the box the sieve is a coin flip on VS Code. A few corrections make it us
 
 More history barely helps: 20 examples per class are within 2-4 points of 150. Adding a trained decision layer and text signals (steps, version, code block, error text) did not move the ceiling either. Whether a maintainer asks for more information depends on context that the text alone does not carry, and labels are applied unevenly. Where the sieve is confident it is right about 9 times in 10. Everything else belongs in **Unsure**.
 
-**Two models that must agree.** The small model plus a larger hosted decision model ([Jev](https://typesafe.ai), about 0.3 s per item). An item is decided only when both models give the same answer. Otherwise it goes to a human. Measured on 200 held-out labelled issues per repo, 150 history examples per class:
+**Two models that must agree.** The small model plus a larger hosted decision model (Jev, about 0.3 s per item). An item is decided only when both models give the same answer. Otherwise it goes to a human. Measured on 200 held-out labelled issues per repo, 150 history examples per class:
 
 | repo | small model alone: decided / right | both agree: decided / right | larger model alone |
 |---|---|---|---|
