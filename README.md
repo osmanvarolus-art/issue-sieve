@@ -31,6 +31,8 @@ Without WebGPU it falls back to WebAssembly on the CPU. In a headless CPU-only b
 | 10 | 80% |
 | 20 | 82% |
 
+Out of the box the sieve is a coin flip on VS Code. A few corrections make it useful. That is the design: the built-in examples only start you off, and after 3 corrections in a column the sieve uses your own examples for that column alone. Corrections are stored per repo in your browser (`localStorage`).
+
 **Trained on a repo's own label history** (closed issues the maintainers labelled "needs info" against confirmed bugs, 150 per class, tested on the rest, 10 random splits):
 
 | repo | accuracy | items it is confident about | accuracy on those |
@@ -41,8 +43,6 @@ Without WebGPU it falls back to WebAssembly on the CPU. In a headless CPU-only b
 | microsoft/TypeScript | 69% | 22% | 85% |
 
 More history barely helps: 20 examples per class are within 2-4 points of 150. Adding a trained decision layer and text signals (steps, version, code block, error text) did not move the ceiling either. Whether a maintainer asks for more information depends on context that the text alone does not carry, and labels are applied unevenly. Where the sieve is confident it is right about 9 times in 10. Everything else belongs in **Unsure**.
-
-Out of the box the sieve is a coin flip on this repo. A few corrections make it useful. That is the design: the built-in examples only start you off, and after 3 corrections in a column the sieve uses your own examples for that column alone. Corrections are stored per repo in your browser (`localStorage`).
 
 ## How it works
 
