@@ -44,6 +44,17 @@ Out of the box the sieve is a coin flip on VS Code. A few corrections make it us
 
 More history barely helps: 20 examples per class are within 2-4 points of 150. Adding a trained decision layer and text signals (steps, version, code block, error text) did not move the ceiling either. Whether a maintainer asks for more information depends on context that the text alone does not carry, and labels are applied unevenly. Where the sieve is confident it is right about 9 times in 10. Everything else belongs in **Unsure**.
 
+**Two models that must agree.** The small model plus a larger hosted decision model ([Jev](https://typesafe.ai), about 0.3 s per item). An item is decided only when both models give the same answer. Otherwise it goes to a human. Measured on 200 held-out labelled issues per repo, 150 history examples per class:
+
+| repo | small model alone: decided / right | both agree: decided / right | larger model alone |
+|---|---|---|---|
+| microsoft/vscode | 56% / 92% | 82% / 90% | 80% |
+| kubernetes/kubernetes | 17% / 92% | 63% / 85% | 72% |
+| flutter/flutter | 20% / 88% | 62% / 86% | 82% |
+| microsoft/TypeScript | 22% / 85% | 72% / 87% | 78% |
+
+The agreement rule has no tuned threshold. It lets the sieve settle two to three times more items on its own at roughly the same accuracy. This needs a server holding an API key, so it is not in the browser page. It is the plan for a GitHub App version.
+
 ## How it works
 
 1. Each item's title and the first 400 characters of its body are embedded with [bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) through [transformers.js](https://github.com/huggingface/transformers.js), on WebGPU when available.
