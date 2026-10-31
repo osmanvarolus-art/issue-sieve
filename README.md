@@ -75,3 +75,9 @@ A token raises that limit. The token is only sent to api.github.com.
 - The accuracy numbers come from one repo and one pair of classes. "Low effort" has no labelled benchmark yet.
 
 MIT licence.
+
+---
+
+## License and ownership
+
+Copyright (c) 2026 Osman Varol. All rights reserved. The code is public so it can be read and evaluated; it is **not** open source. See [LICENSE](LICENSE). For any other use, ask first by opening an issue. Copies obtained before 2026-10-31 under the MIT licence keep the rights that licence gave them; this repository does not grant them from now on.
